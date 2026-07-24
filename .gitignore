@@ -1,0 +1,66 @@
+# Build directories
+build/
+Build/
+Debug/
+Release/
+out/
+cmake-build-*/
+
+# Compiled objects and libraries
+*.o
+*.obj
+*.lo
+*.a
+*.lib
+*.so
+*.so.*
+*.dll
+*.dylib
+*.exe
+*.out
+
+# Firmware and linker outputs
+*.elf
+*.axf
+*.hex
+*.bin
+*.ihx
+*.map
+*.lst
+*.list
+*.d
+*.su
+
+# Coverage, profiling, and static analysis
+*.gcda
+*.gcno
+*.gcov
+*.profraw
+*.profdata
+*.sarif
+compile_commands.json
+
+# Generated dependency and cache files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+.cache/
+
+# IDE and editor settings
+.vscode/
+.idea/
+*.code-workspace
+.settings/
+.project
+.cproject
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
