@@ -71,9 +71,13 @@ Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c \
 Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM3/port.c \
 App/app_tasks.c \
 Driver/display_stub.c \
+Driver/motor_driver.c \
 Driver/ring_buffer.c \
+Driver/transport.c \
 Service/command_router.c \
+Service/communication_system.c \
 Service/crc8.c \
+Service/motion_watchdog.c \
 Service/protocol.c \
 Service/robot_state.c \
 Core/Src/sysmem.c \

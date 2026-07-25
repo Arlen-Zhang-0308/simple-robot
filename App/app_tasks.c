@@ -1,65 +1,68 @@
 #include "app_tasks.h"
 
 #include "app_config.h"
-#include "command_router.h"
+#include "communication_system.h"
 #include "display_stub.h"
-#include "protocol.h"
-#include "ring_buffer.h"
+#include "motor_driver.h"
+#include "motion_watchdog.h"
 #include "robot_state.h"
 
-#define UART_RX_STORAGE_SIZE 128U
 #define SIMULATED_INPUT_MV   5000U
 #define POWER_LOW_MV         4500U
 
-static uint8_t uart_rx_storage[UART_RX_STORAGE_SIZE];
-static RingBuffer uart_rx_buffer;
-static ProtocolParser protocol_parser;
-
 void app_tasks_init(void)
 {
-    (void)ring_buffer_init(&uart_rx_buffer, uart_rx_storage, sizeof(uart_rx_storage));
-    protocol_parser_init(&protocol_parser);
+    communication_system_init();
+    motion_watchdog_init();
     robot_state_init();
     display_stub_init();
+    (void)motor_driver_init();
 }
 
 bool comm_task_rx_byte(uint8_t byte)
 {
-    return ring_buffer_push(&uart_rx_buffer, byte);
+    return comm_task_transport_rx_byte(TRANSPORT_UART, byte);
 }
 
 size_t comm_task_process(uint8_t *tx_frame, size_t tx_capacity)
 {
-    uint8_t byte;
-    ProtocolFrame request;
-    CommandResponse response;
+    TransportId response_transport;
 
-    while (ring_buffer_pop(&uart_rx_buffer, &byte)) {
-        ProtocolParseResult result = protocol_parser_consume(&protocol_parser, byte, &request);
-        if (result == PROTOCOL_PARSE_FRAME_READY) {
-            if (!command_router_handle(&request, &response)) {
-                return 0U;
-            }
-            return protocol_encode(response.command, response.payload,
-                                   response.payload_length, tx_frame, tx_capacity);
-        }
-        if ((result == PROTOCOL_PARSE_BAD_CRC) ||
-            (result == PROTOCOL_PARSE_BAD_LENGTH)) {
-            robot_state_set_error((result == PROTOCOL_PARSE_BAD_CRC)
-                                      ? PROTO_ERR_BAD_CRC
-                                      : PROTO_ERR_BAD_LEN);
-        }
-    }
+    return comm_task_process_transport(
+        &response_transport,
+        tx_frame,
+        tx_capacity);
+}
 
-    return 0U;
+bool comm_task_transport_rx_byte(TransportId transport, uint8_t byte)
+{
+    return communication_system_receive_byte(transport, byte);
+}
+
+size_t comm_task_process_transport(
+    TransportId *response_transport,
+    uint8_t *tx_frame,
+    size_t tx_capacity)
+{
+    return communication_system_process(
+        response_transport,
+        tx_frame,
+        tx_capacity);
 }
 
 void motion_task_step(void)
 {
     RobotState state = robot_state_snapshot();
-    if (state.sensor.low_power && (state.motion != MOTION_STATE_EMERGENCY_STOP)) {
+    if (motion_watchdog_tick(RTOS_MOTION_TICK_MS)) {
         robot_state_set_motion(MOTION_STATE_STOPPED, 0U);
+        state = robot_state_snapshot();
     }
+    if (state.sensor.low_power && (state.motion != MOTION_STATE_EMERGENCY_STOP)) {
+        motion_watchdog_cancel();
+        robot_state_set_motion(MOTION_STATE_STOPPED, 0U);
+        state = robot_state_snapshot();
+    }
+    motor_driver_apply(state.motion, state.speed);
 }
 
 void display_task_step(void)

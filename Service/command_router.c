@@ -1,6 +1,7 @@
 #include "command_router.h"
 
 #include "module_config.h"
+#include "motion_watchdog.h"
 #include "robot_state.h"
 
 static void set_ack(CommandResponse *response, uint8_t original_command)
@@ -79,6 +80,7 @@ bool command_router_handle(const ProtocolFrame *request, CommandResponse *respon
             set_nack(response, PROTO_ERR_BAD_PAYLOAD);
             break;
         }
+        motion_watchdog_cancel();
         robot_state_set_motion(MOTION_STATE_STOPPED, 0U);
         set_ack(response, request->command);
         break;
@@ -101,6 +103,7 @@ bool command_router_handle(const ProtocolFrame *request, CommandResponse *respon
             (request->command == CMD_TURN_LEFT) ? MOTION_STATE_TURN_LEFT :
                                                   MOTION_STATE_TURN_RIGHT,
             request->payload[0]);
+        motion_watchdog_refresh();
         set_ack(response, request->command);
         break;
 
@@ -109,6 +112,7 @@ bool command_router_handle(const ProtocolFrame *request, CommandResponse *respon
             set_nack(response, PROTO_ERR_BAD_PAYLOAD);
             break;
         }
+        motion_watchdog_cancel();
         robot_state_set_motion(MOTION_STATE_EMERGENCY_STOP, 0U);
         set_ack(response, request->command);
         break;

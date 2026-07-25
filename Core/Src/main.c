@@ -324,9 +324,9 @@ static void MX_TIM4_Init(void)
 
   /* USER CODE END TIM4_Init 1 */
   htim4.Instance = TIM4;
-  htim4.Init.Prescaler = 71;
+  htim4.Init.Prescaler = 7;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim4.Init.Period = 19999;
+  htim4.Init.Period = 999;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
@@ -349,7 +349,7 @@ static void MX_TIM4_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 1500;
+  sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
@@ -456,7 +456,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
   if (huart->Instance == USART1)
   {
-    (void)comm_task_rx_byte(uart_rx_byte);
+    (void)comm_task_transport_rx_byte(TRANSPORT_UART, uart_rx_byte);
     (void)HAL_UART_Receive_IT(&huart1, &uart_rx_byte, 1U);
   }
 }
@@ -474,12 +474,16 @@ void StartCommTask(void const * argument)
 {
   /* USER CODE BEGIN 5 */
   uint8_t tx_frame[37];
+  TransportId response_transport;
 
   /* Infinite loop */
   for(;;)
   {
-    size_t tx_length = comm_task_process(tx_frame, sizeof(tx_frame));
-    if (tx_length > 0U)
+    size_t tx_length = comm_task_process_transport(
+        &response_transport,
+        tx_frame,
+        sizeof(tx_frame));
+    if ((tx_length > 0U) && (response_transport == TRANSPORT_UART))
     {
       (void)HAL_UART_Transmit(&huart1, tx_frame, (uint16_t)tx_length, 100U);
     }
