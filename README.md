@@ -20,6 +20,9 @@
 - PING / ACK、GET_STATUS、GET_POWER、Motion 状态命令和 CRC8。
 - CRC 或长度错误返回 NACK；未知命令、错误 Payload、禁用模块和欠压使用统一错误响应。
 - DRV8833 实际输出：PB6→AIN1、PB7→AIN2、PB8→BIN1、PB9→BIN2，TIM4 运行于 10 kHz。
+- 7 针 SPI OLED：D0→PA5、D1→PA7、RES→PB2、DC→PB1、CS→GND；PB0 保持空闲。
+- 四路舵机预留：TIM2 部分重映射，PA15 / PB3 / PA2 / PA3。
+- 蓝牙预留：USART3，PB10 / PB11；Wi-Fi 预留：USART2，PA2 / PA3，PB15 为 EN。
 - OLED Stub 与模拟电压检测。
 
 任务优先级：
@@ -71,9 +74,10 @@ bss  13368 bytes
 - 尚未连接真实板卡烧录或运行验证。
 - 当前转向采用左右轮反向的原地转向；若实物电机方向相反，交换对应电机两根输入定义或电机接线。
 - 前进、后退和转向命令必须在 500 ms 内续发；超时后状态切换为停止并清零四路 PWM。
-- TIM4 四个通道已用于电机，不能同时用于四路舵机。
+- TIM4 四个通道用于电机；四路舵机已独立分配到 TIM2。Servo3/4 与 USART2 Wi-Fi 共用 PA2/PA3，默认优先使用舵机。
 - UART 接收溢出当前只丢弃新字节，后续可增加错误计数或事件通知。
 - nRF24L01、蓝牙和 Wi-Fi 尚未接入真实驱动；链路加密也尚未实现。
+- OLED CS 当前固定接地，OLED 始终处于选中状态，因此当前接法下不能同时启用 nRF24L01 SPI 通信。
 - RobotState 当前按首轮最小骨架直接共享，后续接入真实硬件与更高并发后再增加临界区。
 - ADC 与 SPI1 已由 HAL 初始化，传感器和显示仍使用模拟/Stub；TIM4 已用于真实电机 PWM。
 - 不要使用 STM32CubeMX Generate Code 覆盖当前工程；外设和引脚调整直接修改现有代码与构建配置。

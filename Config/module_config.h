@@ -57,10 +57,6 @@
 #error "ADC power sensor implementation requires APP_ENABLE_ADC_POWER"
 #endif
 
-#if APP_ENABLE_MOTOR && APP_ENABLE_SERVO
-#error "Motor and servo cannot share TIM4 channels"
-#endif
-
 #if (APP_TRANSPORT_UART_ENCRYPTION < APP_TRANSPORT_ENCRYPTION_NONE) || \
     (APP_TRANSPORT_UART_ENCRYPTION > APP_TRANSPORT_ENCRYPTION_APP)
 #error "Invalid UART transport encryption"
