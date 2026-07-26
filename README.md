@@ -16,14 +16,16 @@
 - 第一版仅启用无加密 UART；其他传输方式保留类型、配置和接入接口。
 - MotionTask：20 ms 周期把运动状态写入 DRV8833 四路 PWM，并执行欠压、急停和 500 ms 通信失联停车。
 - SensorTask：100 ms 周期发布模拟 5V 输入状态。
-- DisplayTask：33 ms 周期调用 Display Stub。
+- DisplayTask：33 ms 周期读取 RobotState，并通过 SPI1 刷新 128×64 SSD1306 OLED。
+- 显示页 0：设备名称、输入电压、低电量状态、运动状态和最近错误码。
+- 显示页 1：运动方向、速度和驱动就绪/低电量锁定状态；其他页码回退到状态页。
 - PING / ACK、GET_STATUS、GET_POWER、Motion 状态命令和 CRC8。
 - CRC 或长度错误返回 NACK；未知命令、错误 Payload、禁用模块和欠压使用统一错误响应。
 - DRV8833 实际输出：PB6→AIN1、PB7→AIN2、PB8→BIN1、PB9→BIN2，TIM4 运行于 10 kHz。
 - 7 针 SPI OLED：D0→PA5、D1→PA7、RES→PB2、DC→PB1、CS→GND；PB0 保持空闲。
 - 四路舵机预留：TIM2 部分重映射，PA15 / PB3 / PA2 / PA3。
 - 蓝牙预留：USART3，PB10 / PB11；Wi-Fi 预留：USART2，PA2 / PA3，PB15 为 EN。
-- OLED Stub 与模拟电压检测。
+- SSD1306 SPI OLED 显示与模拟电压检测；显示驱动仍保留 Stub 配置用于脱机测试。
 
 任务优先级：
 
@@ -64,9 +66,9 @@ build/simple-robot.bin
 最终构建内存占用：
 
 ```text
-text 16788 bytes
+text 19204 bytes
 data    16 bytes
-bss  13368 bytes
+bss  14384 bytes
 ```
 
 ## 当前边界
@@ -78,6 +80,7 @@ bss  13368 bytes
 - UART 接收溢出当前只丢弃新字节，后续可增加错误计数或事件通知。
 - nRF24L01、蓝牙和 Wi-Fi 尚未接入真实驱动；链路加密也尚未实现。
 - OLED CS 当前固定接地，OLED 始终处于选中状态，因此当前接法下不能同时启用 nRF24L01 SPI 通信。
+- 实物 OLED 已确认为 128×64 SSD1306 四线 SPI 模块，当前驱动与控制器型号一致。
 - RobotState 当前按首轮最小骨架直接共享，后续接入真实硬件与更高并发后再增加临界区。
-- ADC 与 SPI1 已由 HAL 初始化，传感器和显示仍使用模拟/Stub；TIM4 已用于真实电机 PWM。
+- ADC 与 SPI1 已由 HAL 初始化；传感器仍使用模拟值，显示已接入真实 SPI 驱动，TIM4 已用于真实电机 PWM。
 - 不要使用 STM32CubeMX Generate Code 覆盖当前工程；外设和引脚调整直接修改现有代码与构建配置。

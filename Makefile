@@ -70,6 +70,7 @@ Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS/cmsis_os.c \
 Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c \
 Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM3/port.c \
 App/app_tasks.c \
+Driver/display.c \
 Driver/display_stub.c \
 Driver/motor_driver.c \
 Driver/ring_buffer.c \

@@ -19,6 +19,8 @@ Core/Src/stm32f1xx_it.c
 Core/Src/syscalls.c
 Core/Src/sysmem.c
 Core/Src/system_stm32f1xx.c
+Driver/display.c
+Driver/display.h
 Driver/display_stub.c
 Driver/display_stub.h
 Driver/ring_buffer.c

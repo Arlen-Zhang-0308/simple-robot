@@ -2,7 +2,7 @@
 
 #include "app_config.h"
 #include "communication_system.h"
-#include "display_stub.h"
+#include "display.h"
 #include "motor_driver.h"
 #include "motion_watchdog.h"
 #include "robot_state.h"
@@ -15,7 +15,7 @@ void app_tasks_init(void)
     communication_system_init();
     motion_watchdog_init();
     robot_state_init();
-    display_stub_init();
+    display_init();
     (void)motor_driver_init();
 }
 
@@ -68,7 +68,7 @@ void motion_task_step(void)
 void display_task_step(void)
 {
     RobotState state = robot_state_snapshot();
-    display_stub_render(&state);
+    display_render(&state);
 }
 
 void sensor_task_step(void)
