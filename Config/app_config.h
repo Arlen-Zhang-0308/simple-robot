@@ -12,8 +12,20 @@
 
 #define APP_MOTION_COMMAND_TIMEOUT_MS 500U
 
+#define APP_DISPLAY_ANIMATION_FRAME_MS  50U
+#define APP_DISPLAY_ANIMATION_FRAMES   240U
+#define APP_DISPLAY_IDLE_TIMEOUT_MS   3000U
+
 #if (APP_MOTION_COMMAND_TIMEOUT_MS % RTOS_MOTION_TICK_MS) != 0U
 #error "Motion command timeout must align with MotionTask period"
+#endif
+
+#if APP_DISPLAY_ANIMATION_FRAME_MS < RTOS_DISPLAY_PERIOD_MS
+#error "Display animation frame period must not be shorter than DisplayTask period"
+#endif
+
+#if APP_DISPLAY_ANIMATION_FRAMES != 240U
+#error "Mechanical morph animation requires six 40-frame phases"
 #endif
 
 #define APP_DEBUG_ENABLE  1

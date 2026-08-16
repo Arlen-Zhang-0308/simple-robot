@@ -61,7 +61,7 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define OLED_DC_Pin GPIO_PIN_1
 #define OLED_DC_GPIO_Port GPIOB
-#define OLED_RST_Pin GPIO_PIN_2
+#define OLED_RST_Pin GPIO_PIN_0
 #define OLED_RST_GPIO_Port GPIOB
 #define NRF_CSN_Pin GPIO_PIN_4
 #define NRF_CSN_GPIO_Port GPIOA

@@ -10,12 +10,38 @@
 #define SIMULATED_INPUT_MV   5000U
 #define POWER_LOW_MV         4500U
 
+static uint16_t display_animation_frame;
+static uint16_t display_animation_elapsed_ms;
+static uint16_t display_idle_ms;
+static bool display_startup_animation;
+
+static bool display_animation_step(void)
+{
+    bool loop_complete = false;
+
+    display_render_animation(display_animation_frame);
+    display_animation_elapsed_ms = (uint16_t)(display_animation_elapsed_ms + RTOS_DISPLAY_PERIOD_MS);
+    if (display_animation_elapsed_ms >= APP_DISPLAY_ANIMATION_FRAME_MS) {
+        display_animation_elapsed_ms = (uint16_t)(display_animation_elapsed_ms - APP_DISPLAY_ANIMATION_FRAME_MS);
+        display_animation_frame++;
+        if (display_animation_frame >= APP_DISPLAY_ANIMATION_FRAMES) {
+            display_animation_frame = 0U;
+            loop_complete = true;
+        }
+    }
+    return loop_complete;
+}
+
 void app_tasks_init(void)
 {
     communication_system_init();
     motion_watchdog_init();
     robot_state_init();
     display_init();
+    display_animation_frame = 0U;
+    display_animation_elapsed_ms = 0U;
+    display_idle_ms = 0U;
+    display_startup_animation = true;
     (void)motor_driver_init();
 }
 
@@ -68,7 +94,37 @@ void motion_task_step(void)
 void display_task_step(void)
 {
     RobotState state = robot_state_snapshot();
-    display_render(&state);
+    bool idle = (state.motion == MOTION_STATE_STOPPED) &&
+                (state.speed == 0U) &&
+                !state.sensor.low_power &&
+                (state.last_error == 0U);
+
+    if (display_startup_animation && idle) {
+        if (display_animation_step()) {
+            display_startup_animation = false;
+        }
+        return;
+    }
+
+    if (!idle) {
+        display_startup_animation = false;
+        display_idle_ms = 0U;
+        display_animation_frame = 0U;
+        display_animation_elapsed_ms = 0U;
+        display_render(&state);
+        return;
+    }
+
+    if (display_idle_ms < APP_DISPLAY_IDLE_TIMEOUT_MS) {
+        uint16_t remaining_ms = (uint16_t)(APP_DISPLAY_IDLE_TIMEOUT_MS - display_idle_ms);
+        display_idle_ms = (remaining_ms > RTOS_DISPLAY_PERIOD_MS) ?
+                          (uint16_t)(display_idle_ms + RTOS_DISPLAY_PERIOD_MS) :
+                          APP_DISPLAY_IDLE_TIMEOUT_MS;
+        display_render(&state);
+        return;
+    }
+
+    (void)display_animation_step();
 }
 
 void sensor_task_step(void)

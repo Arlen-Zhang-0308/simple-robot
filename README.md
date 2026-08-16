@@ -17,12 +17,14 @@
 - MotionTask：20 ms 周期把运动状态写入 DRV8833 四路 PWM，并执行欠压、急停和 500 ms 通信失联停车。
 - SensorTask：100 ms 周期发布模拟 5V 输入状态。
 - DisplayTask：33 ms 周期读取 RobotState，并通过 SPI1 刷新 128×64 SSD1306 OLED。
+- 上电后以 20 FPS 播放一轮 240 帧抽象机械生物变形动画，约 12 秒；动画由像素基元实时绘制，不占用帧表空间。
+- 机器人停止、速度为 0 且无低电量或错误持续 3 秒后进入待机动画并循环；运动、低电量或错误状态会立即恢复信息页。
 - 显示页 0：设备名称、输入电压、低电量状态、运动状态和最近错误码。
 - 显示页 1：运动方向、速度和驱动就绪/低电量锁定状态；其他页码回退到状态页。
 - PING / ACK、GET_STATUS、GET_POWER、Motion 状态命令和 CRC8。
 - CRC 或长度错误返回 NACK；未知命令、错误 Payload、禁用模块和欠压使用统一错误响应。
 - DRV8833 实际输出：PB6→AIN1、PB7→AIN2、PB8→BIN1、PB9→BIN2，TIM4 运行于 10 kHz。
-- 7 针 SPI OLED：D0→PA5、D1→PA7、RES→PB2、DC→PB1、CS→GND；PB0 保持空闲。
+- 7 针 SPI OLED：D0→PA5、D1→PA7、RES→PB0、DC→PB1、CS→GND；PB2 / BOOT1 不再使用。
 - 四路舵机预留：TIM2 部分重映射，PA15 / PB3 / PA2 / PA3。
 - 蓝牙预留：USART3，PB10 / PB11；Wi-Fi 预留：USART2，PA2 / PA3，PB15 为 EN。
 - SSD1306 SPI OLED 显示与模拟电压检测；显示驱动仍保留 Stub 配置用于脱机测试。
@@ -66,14 +68,15 @@ build/simple-robot.bin
 最终构建内存占用：
 
 ```text
-text 19204 bytes
+text 21924 bytes
 data    16 bytes
-bss  14384 bytes
+bss  14392 bytes
 ```
 
 ## 当前边界
 
 - 尚未连接真实板卡烧录或运行验证。
+- 启动/待机动画已使用 ARM GCC 14.2.1 重新构建通过；生成的 `.elf`、`.hex` 和 `.bin` 已使用 pyOCD 在 STM32F103C8T6 实机完成烧录验证。
 - 当前转向采用左右轮反向的原地转向；若实物电机方向相反，交换对应电机两根输入定义或电机接线。
 - 前进、后退和转向命令必须在 500 ms 内续发；超时后状态切换为停止并清零四路 PWM。
 - TIM4 四个通道用于电机；四路舵机已独立分配到 TIM2。Servo3/4 与 USART2 Wi-Fi 共用 PA2/PA3，默认优先使用舵机。
