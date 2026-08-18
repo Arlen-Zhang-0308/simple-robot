@@ -1,10 +1,12 @@
 #include "display.h"
 
+#include <limits.h>
 #include <stddef.h>
 #include <string.h>
 
 #include "app_config.h"
 #include "display_stub.h"
+#include "tetra_trig_lut.h"
 
 #if APP_ENABLE_OLED && (APP_OLED_IMPL == APP_OLED_IMPL_SSD1306_SPI)
 #include "main.h"
@@ -19,10 +21,40 @@ extern SPI_HandleTypeDef hspi1;
 #define DISPLAY_SPI_TIMEOUT_MS 100U
 #define DISPLAY_PAGE_STATUS      0U
 #define DISPLAY_PAGE_MOTION      1U
-#define ANIMATION_PHASE_FRAMES  40U
+#define TETRA_Q16_SHIFT             16
+#define TETRA_Q16_ONE               (1L << TETRA_Q16_SHIFT)
+#define TETRA_TWO_PI_Q16            411775L
+#define TETRA_HALF_PI_Q16           102944L
+#define TETRA_UNIT_Q16               37837L
+#define TETRA_SCALE_Q16             983040L
+#define TETRA_CAMERA_Q16            242483L
+#define TETRA_INITIAL_X_Q16        3407872L
+#define TETRA_INITIAL_Y_Q16        2031616L
+/* Web animation at the selected 2x speed and 50 ms simulation step. */
+#define TETRA_DX_Q16                 85197L
+#define TETRA_DY_Q16                 52429L
+#define TETRA_DAX_Q16                 4719L
+#define TETRA_DAY_Q16                 6750L
+#define TETRA_DAZ_Q16                 3080L
+
+typedef struct {
+    int32_t x_q16;
+    int32_t y_q16;
+    int32_t dx_q16;
+    int32_t dy_q16;
+    int32_t ax_q16;
+    int32_t ay_q16;
+    int32_t az_q16;
+    uint32_t tick;
+} TetraState;
 
 static uint8_t frame_buffer[DISPLAY_BUFFER_SIZE];
 static bool display_ready;
+static TetraState tetra_state = {
+    TETRA_INITIAL_X_Q16, TETRA_INITIAL_Y_Q16,
+    TETRA_DX_Q16, TETRA_DY_Q16,
+    13107L, 36045L, 6554L, 0U
+};
 
 static const uint8_t font_5x7[][5] = {
     [' ' - ' '] = {0x00, 0x00, 0x00, 0x00, 0x00},
@@ -145,219 +177,161 @@ static void draw_outline(int16_t x, int16_t y, int16_t width, int16_t height)
     draw_rect((int16_t)(x + width - 1), y, 1, height, true);
 }
 
-static void draw_circle(int16_t cx, int16_t cy, int16_t radius)
-{
-    int16_t x = radius;
-    int16_t y = 0;
-    int16_t error = (int16_t)(1 - x);
-
-    while (x >= y) {
-        draw_pixel((int16_t)(cx + x), (int16_t)(cy + y), true);
-        draw_pixel((int16_t)(cx + y), (int16_t)(cy + x), true);
-        draw_pixel((int16_t)(cx - y), (int16_t)(cy + x), true);
-        draw_pixel((int16_t)(cx - x), (int16_t)(cy + y), true);
-        draw_pixel((int16_t)(cx - x), (int16_t)(cy - y), true);
-        draw_pixel((int16_t)(cx - y), (int16_t)(cy - x), true);
-        draw_pixel((int16_t)(cx + y), (int16_t)(cy - x), true);
-        draw_pixel((int16_t)(cx + x), (int16_t)(cy - y), true);
-        y++;
-        if (error < 0) {
-            error = (int16_t)(error + (2 * y) + 1);
-        } else {
-            x--;
-            error = (int16_t)(error + (2 * (y - x + 1)));
-        }
-    }
-}
-
-static void invert_buffer(void)
-{
-    size_t index;
-    for (index = 0U; index < sizeof(frame_buffer); index++) {
-        frame_buffer[index] ^= 0xFFU;
-    }
-}
-
-static void draw_animation_border(uint16_t frame)
+static void draw_animation_border(uint32_t tick)
 {
     int16_t position;
 
     draw_outline(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT);
-    for (position = (int16_t)((frame / 2U) % 8U); position < DISPLAY_WIDTH; position += 8) {
+    for (position = (int16_t)((tick >> 1U) & 7U); position < DISPLAY_WIDTH; position += 8) {
         draw_pixel(position, 1, true);
         draw_pixel((int16_t)(DISPLAY_WIDTH - 1 - position), DISPLAY_HEIGHT - 2, true);
     }
-    for (position = (int16_t)((frame / 4U) % 8U); position < DISPLAY_HEIGHT; position += 8) {
-        draw_pixel(1, position, true);
-        draw_pixel(DISPLAY_WIDTH - 2, (int16_t)(DISPLAY_HEIGHT - 1 - position), true);
-    }
 }
 
-static void draw_checker(int16_t x, int16_t y, int16_t width, int16_t height, uint16_t offset)
+static int32_t q16_wrap_angle(int32_t angle_q16)
 {
-    int16_t xx;
-    int16_t yy;
-
-    for (yy = 0; yy < height; yy++) {
-        for (xx = 0; xx < width; xx++) {
-            if ((((uint16_t)xx + (uint16_t)yy + offset) & 1U) == 0U) {
-                draw_pixel((int16_t)(x + xx), (int16_t)(y + yy), true);
-            }
-        }
-    }
+    angle_q16 %= TETRA_TWO_PI_Q16;
+    return (angle_q16 < 0L) ? (angle_q16 + TETRA_TWO_PI_Q16) : angle_q16;
 }
 
-static void draw_creature(int16_t cx, int16_t cy, uint16_t frame, int16_t split)
+static int16_t sin_q15(int32_t angle_q16)
 {
-    int16_t breathe = ((frame / 4U) & 1U) != 0U ? 2 : 0;
-    int16_t feeler = (int16_t)((frame / 2U) % 5U);
-    int16_t foot = (int16_t)((frame / 2U) % 4U);
-    int16_t x;
-
-    draw_outline((int16_t)(cx - 18 - split), (int16_t)(cy - 9), 15, (int16_t)(18 + breathe));
-    draw_outline((int16_t)(cx + 4 + split), (int16_t)(cy - 9), 15, (int16_t)(18 + breathe));
-    draw_checker((int16_t)(cx - 2), (int16_t)(cy - 7), 5, 14, frame / 2U);
-    draw_rect((int16_t)(cx - 13 - split), (int16_t)(cy - 4), 5, 5, true);
-    draw_rect((int16_t)(cx + 9 + split), (int16_t)(cy - 4), 5, 5, true);
-    draw_pixel((int16_t)(cx - 11 - split), (int16_t)(cy - 2), false);
-    draw_pixel((int16_t)(cx + 11 + split), (int16_t)(cy - 2), false);
-    draw_line((int16_t)(cx - 18 - split), (int16_t)(cy - 6),
-              (int16_t)(cx - 29 - split), (int16_t)(cy - 15 + feeler));
-    draw_line((int16_t)(cx + 18 + split), (int16_t)(cy - 6),
-              (int16_t)(cx + 29 + split), (int16_t)(cy - 15 + feeler));
-    draw_line((int16_t)(cx - 16 - split), (int16_t)(cy + 8),
-              (int16_t)(cx - 25 - split), (int16_t)(cy + 18 - foot));
-    draw_line((int16_t)(cx + 16 + split), (int16_t)(cy + 8),
-              (int16_t)(cx + 25 + split), (int16_t)(cy + 18 - foot));
-    draw_rect((int16_t)(cx - 8), (int16_t)(cy + 13), 17, 1, true);
-    for (x = (int16_t)(cx - 7); x <= (cx + 7); x += 4) {
-        draw_rect(x, (int16_t)(cy + 13), 1, (int16_t)(3 + ((x + frame) & 3)), true);
-    }
-}
-
-static void draw_seed(uint16_t local)
-{
+    uint32_t phase_q16;
     uint16_t index;
-    int16_t pulse = (int16_t)((local / 4U) % 6U);
+    uint16_t fraction;
+    int32_t first;
+    int32_t second;
 
-    draw_circle(64, 32, (int16_t)(3 + pulse));
-    draw_circle(64, 32, (int16_t)(9 + ((local / 8U) % 4U)));
-    draw_line((int16_t)(28 + local), 32, 53, 32);
-    draw_line((int16_t)(100 - local), 32, 75, 32);
-    for (index = 0U; index < 12U; index++) {
-        draw_pixel((int16_t)(((index * 23U + local * 3U) % 124U) + 2U),
-                   (int16_t)(((index * 11U + local) % 60U) + 2U), true);
-    }
-    draw_rect(61, 29, 7, 7, true);
-    draw_rect(63, 31, 3, 3, false);
+    angle_q16 = q16_wrap_angle(angle_q16);
+    phase_q16 = (uint32_t)(((int64_t)angle_q16 * TETRA_TRIG_LUT_STEPS << 16) / TETRA_TWO_PI_Q16);
+    index = (uint16_t)((phase_q16 >> 16) & (TETRA_TRIG_LUT_STEPS - 1U));
+    fraction = (uint16_t)phase_q16;
+    first = tetra_sin_q15[index];
+    second = tetra_sin_q15[index + 1U];
+    return (int16_t)(first + (((second - first) * fraction + 32768L) >> 16));
 }
 
-static void draw_assemble(uint16_t local)
+static int16_t cos_q15(int32_t angle_q16)
 {
-    uint16_t index;
-    int16_t reach = (local / 2U) < 18U ? (int16_t)(local / 2U) : 18;
-
-    draw_outline((int16_t)(64 - reach), (int16_t)(32 - reach / 2),
-                 (reach > 0) ? (int16_t)(reach * 2) : 1, (reach > 0) ? reach : 1);
-    draw_creature(64, 31, local, 0);
-    for (index = 0U; index < 8U; index++) {
-        int16_t y = (int16_t)(8U + index * 6U);
-        int16_t x = (int16_t)(8U + ((local * (index + 1U) + index * 13U) % 112U));
-        draw_rect(x, y, (int16_t)(3U + (index & 3U)), 1, true);
-    }
+    return sin_q15(angle_q16 + TETRA_HALF_PI_Q16);
 }
 
-static void draw_crawl(uint16_t local)
+static int32_t q16_mul_q15(int32_t value_q16, int16_t factor_q15)
 {
-    int16_t y;
-    int16_t x;
-    int16_t bob = ((local / 4U) & 1U) != 0U ? 1 : -1;
-    int16_t cx = (int16_t)(48U + ((local * 2U) % 34U));
-
-    draw_creature(cx, (int16_t)(31 + bob), local, 0);
-    for (y = 8; y < 57; y += 8) {
-        int16_t shift = (int16_t)((local * (((y & 15) != 0) ? 2U : 3U)) % 16U);
-        for (x = (int16_t)-shift; x < DISPLAY_WIDTH; x += 16) {
-            draw_rect(x, y, 7, 1, true);
-        }
-    }
-    draw_rect(4, 53, 120, 1, true);
-    for (x = 6; x < 124; x += 6) {
-        draw_pixel((int16_t)(((x - (int16_t)(local * 2U) + 248) % 124) + 2), 55, true);
-    }
+    return (int32_t)(((int64_t)value_q16 * factor_q15) >> 15);
 }
 
-static void draw_divide(uint16_t local)
+static int16_t q16_round_to_i16(int32_t value_q16)
 {
-    int16_t y;
-    int16_t split = (local / 2U) < 20U ? (int16_t)(local / 2U) : 20;
-
-    draw_creature(64, 31, local, split);
-    draw_rect(64, 5, 1, 54, true);
-    for (y = 5; y < 59; y += 4) {
-        draw_pixel((int16_t)(61 - (local % 12U)), y, true);
-        draw_pixel((int16_t)(67 + (local % 12U)), (int16_t)(63 - y), true);
-    }
-    if (split > 10) {
-        draw_circle(32, 32, (int16_t)(7U + ((local / 4U) & 3U)));
-        draw_circle(96, 32, (int16_t)(7U + (((local / 4U) + 2U) & 3U)));
-    }
+    return (value_q16 >= 0L) ?
+        (int16_t)((value_q16 + 0x8000L) >> 16) :
+        (int16_t)-(((-value_q16) + 0x8000L) >> 16);
 }
 
-static void draw_inversion(uint16_t local)
+static void rotate_tetra_point(int32_t *x_q16, int32_t *y_q16, int32_t *z_q16)
 {
-    int16_t band = (int16_t)((local * 4U) % DISPLAY_HEIGHT);
+    int32_t x = *x_q16;
+    int32_t y = *y_q16;
+    int32_t z = *z_q16;
+    int32_t y1;
+    int32_t z1;
+    int32_t x2;
+    int32_t z2;
+    int16_t sx = sin_q15(tetra_state.ax_q16);
+    int16_t cx = cos_q15(tetra_state.ax_q16);
+    int16_t sy = sin_q15(tetra_state.ay_q16);
+    int16_t cy = cos_q15(tetra_state.ay_q16);
+    int16_t sz = sin_q15(tetra_state.az_q16);
+    int16_t cz = cos_q15(tetra_state.az_q16);
 
-    draw_creature(64, 31, local, 5);
-    draw_checker(8, 8, 24, 48, local / 2U);
-    draw_checker(96, 8, 24, 48, local / 2U + 1U);
-    draw_rect(2, band, 124, 5, true);
-    draw_rect(2, (int16_t)(band + 1), 124, 3, false);
-    if ((local % 10U) < 5U) {
-        invert_buffer();
-    }
+    y1 = q16_mul_q15(y, cx) - q16_mul_q15(z, sx);
+    z1 = q16_mul_q15(y, sx) + q16_mul_q15(z, cx);
+    x2 = q16_mul_q15(x, cy) + q16_mul_q15(z1, sy);
+    z2 = -q16_mul_q15(x, sy) + q16_mul_q15(z1, cy);
+    *x_q16 = q16_mul_q15(x2, cz) - q16_mul_q15(y1, sz);
+    *y_q16 = q16_mul_q15(x2, sz) + q16_mul_q15(y1, cz);
+    *z_q16 = z2;
 }
 
-static void draw_collapse(uint16_t local)
+static void tetra_points(int32_t points_q16[4][2], int32_t bounds_q16[4])
 {
-    uint16_t index;
-    int16_t shrink = (int16_t)(22 - local / 2U);
-    int16_t distance = (local < 38U) ? (int16_t)(38U - local) : 0;
+    static const int32_t vertices_q16[4][3] = {
+        { TETRA_UNIT_Q16,  TETRA_UNIT_Q16,  TETRA_UNIT_Q16},
+        { TETRA_UNIT_Q16, -TETRA_UNIT_Q16, -TETRA_UNIT_Q16},
+        {-TETRA_UNIT_Q16,  TETRA_UNIT_Q16, -TETRA_UNIT_Q16},
+        {-TETRA_UNIT_Q16, -TETRA_UNIT_Q16,  TETRA_UNIT_Q16}
+    };
+    uint8_t index;
 
-    if (shrink < 2) {
-        shrink = 2;
-    }
-    draw_outline((int16_t)(64 - shrink), (int16_t)(32 - shrink / 2),
-                 (int16_t)(shrink * 2), shrink);
-    draw_circle(64, 32, (shrink / 2) > 2 ? (int16_t)(shrink / 2) : 2);
-    for (index = 0U; index < 24U; index++) {
-        int16_t x = (int16_t)(64 + ((((int16_t)((index * 17U) % 31U) - 15) * distance) >> 5));
-        int16_t y = (int16_t)(32 + ((((int16_t)((index * 11U) % 25U) - 12) * distance) >> 5));
-        draw_pixel(x, y, true);
-    }
-    if (local > 32U) {
-        draw_rect(61, 29, 7, 7, true);
-        draw_rect(63, 31, 3, 3, false);
+    bounds_q16[0] = INT32_MAX; bounds_q16[1] = INT32_MIN;
+    bounds_q16[2] = INT32_MAX; bounds_q16[3] = INT32_MIN;
+    for (index = 0U; index < 4U; index++) {
+        int32_t x_q16 = vertices_q16[index][0];
+        int32_t y_q16 = vertices_q16[index][1];
+        int32_t z_q16 = vertices_q16[index][2];
+        int32_t perspective_q16;
+        int32_t projected_x_q16;
+        int32_t projected_y_q16;
+
+        rotate_tetra_point(&x_q16, &y_q16, &z_q16);
+        perspective_q16 = (int32_t)(((int64_t)TETRA_CAMERA_Q16 << 16) / (TETRA_CAMERA_Q16 - z_q16));
+        projected_x_q16 = (int32_t)(((int64_t)((int64_t)x_q16 * TETRA_SCALE_Q16 >> 16) * perspective_q16) >> 16);
+        projected_y_q16 = (int32_t)(((int64_t)((int64_t)y_q16 * TETRA_SCALE_Q16 >> 16) * perspective_q16) >> 16);
+        points_q16[index][0] = projected_x_q16;
+        points_q16[index][1] = projected_y_q16;
+        if (projected_x_q16 < bounds_q16[0]) bounds_q16[0] = projected_x_q16;
+        if (projected_x_q16 > bounds_q16[1]) bounds_q16[1] = projected_x_q16;
+        if (projected_y_q16 < bounds_q16[2]) bounds_q16[2] = projected_y_q16;
+        if (projected_y_q16 > bounds_q16[3]) bounds_q16[3] = projected_y_q16;
     }
 }
 
-static void draw_animation_frame(uint16_t frame)
+static void step_tetra(void)
 {
-    uint16_t phase = (uint16_t)((frame % APP_DISPLAY_ANIMATION_FRAMES) / ANIMATION_PHASE_FRAMES);
-    uint16_t local = (uint16_t)(frame % ANIMATION_PHASE_FRAMES);
+    int32_t points_q16[4][2];
+    int32_t bounds_q16[4];
 
+    tetra_state.ax_q16 = q16_wrap_angle(tetra_state.ax_q16 + TETRA_DAX_Q16);
+    tetra_state.ay_q16 = q16_wrap_angle(tetra_state.ay_q16 + TETRA_DAY_Q16);
+    tetra_state.az_q16 = q16_wrap_angle(tetra_state.az_q16 + TETRA_DAZ_Q16);
+    tetra_state.x_q16 += tetra_state.dx_q16;
+    tetra_state.y_q16 += tetra_state.dy_q16;
+    tetra_points(points_q16, bounds_q16);
+    if (tetra_state.x_q16 + bounds_q16[0] < 0L) {
+        tetra_state.x_q16 = -bounds_q16[0];
+        tetra_state.dx_q16 = (tetra_state.dx_q16 < 0L) ? -tetra_state.dx_q16 : tetra_state.dx_q16;
+    } else if (tetra_state.x_q16 + bounds_q16[1] > ((DISPLAY_WIDTH - 1U) << 16)) {
+        tetra_state.x_q16 = ((DISPLAY_WIDTH - 1U) << 16) - bounds_q16[1];
+        tetra_state.dx_q16 = (tetra_state.dx_q16 > 0L) ? -tetra_state.dx_q16 : tetra_state.dx_q16;
+    }
+    if (tetra_state.y_q16 + bounds_q16[2] < 0L) {
+        tetra_state.y_q16 = -bounds_q16[2];
+        tetra_state.dy_q16 = (tetra_state.dy_q16 < 0L) ? -tetra_state.dy_q16 : tetra_state.dy_q16;
+    } else if (tetra_state.y_q16 + bounds_q16[3] > ((DISPLAY_HEIGHT - 1U) << 16)) {
+        tetra_state.y_q16 = ((DISPLAY_HEIGHT - 1U) << 16) - bounds_q16[3];
+        tetra_state.dy_q16 = (tetra_state.dy_q16 > 0L) ? -tetra_state.dy_q16 : tetra_state.dy_q16;
+    }
+    tetra_state.tick++;
+}
+
+static void draw_animation_frame(void)
+{
+    static const uint8_t edges[6][2] = {{0U, 1U}, {0U, 2U}, {0U, 3U}, {1U, 2U}, {1U, 3U}, {2U, 3U}};
+    int32_t points_q16[4][2];
+    int32_t bounds_q16[4];
+    uint8_t index;
+
+    step_tetra();
     clear_buffer();
-    draw_animation_border(frame);
-    switch (phase) {
-    case 0U: draw_seed(local); break;
-    case 1U: draw_assemble(local); break;
-    case 2U: draw_crawl(local); break;
-    case 3U: draw_divide(local); break;
-    case 4U: draw_inversion(local); break;
-    default: draw_collapse(local); break;
-    }
-    if (local < 2U) {
-        invert_buffer();
+    draw_animation_border(tetra_state.tick);
+    tetra_points(points_q16, bounds_q16);
+    for (index = 0U; index < 6U; index++) {
+        uint8_t a = edges[index][0];
+        uint8_t b = edges[index][1];
+        draw_line(q16_round_to_i16(points_q16[a][0] + tetra_state.x_q16),
+                  q16_round_to_i16(points_q16[a][1] + tetra_state.y_q16),
+                  q16_round_to_i16(points_q16[b][0] + tetra_state.x_q16),
+                  q16_round_to_i16(points_q16[b][1] + tetra_state.y_q16));
     }
 }
 
@@ -567,17 +541,16 @@ void display_render(const RobotState *state)
 #endif
 }
 
-void display_render_animation(uint16_t frame)
+void display_render_animation(void)
 {
 #if !APP_ENABLE_OLED || (APP_OLED_IMPL == APP_OLED_IMPL_NONE) || \
     (APP_OLED_IMPL == APP_OLED_IMPL_STUB)
-    (void)frame;
 #elif APP_OLED_IMPL == APP_OLED_IMPL_SSD1306_SPI
     if (!display_ready) {
         return;
     }
 
-    draw_animation_frame(frame);
+    draw_animation_frame();
     if (!flush_buffer()) {
         display_ready = false;
     }

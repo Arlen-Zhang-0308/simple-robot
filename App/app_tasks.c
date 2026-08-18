@@ -10,26 +10,17 @@
 #define SIMULATED_INPUT_MV   5000U
 #define POWER_LOW_MV         4500U
 
-static uint16_t display_animation_frame;
 static uint16_t display_animation_elapsed_ms;
 static uint16_t display_idle_ms;
 static bool display_startup_animation;
 
-static bool display_animation_step(void)
+static void display_animation_step(void)
 {
-    bool loop_complete = false;
-
-    display_render_animation(display_animation_frame);
     display_animation_elapsed_ms = (uint16_t)(display_animation_elapsed_ms + RTOS_DISPLAY_PERIOD_MS);
     if (display_animation_elapsed_ms >= APP_DISPLAY_ANIMATION_FRAME_MS) {
         display_animation_elapsed_ms = (uint16_t)(display_animation_elapsed_ms - APP_DISPLAY_ANIMATION_FRAME_MS);
-        display_animation_frame++;
-        if (display_animation_frame >= APP_DISPLAY_ANIMATION_FRAMES) {
-            display_animation_frame = 0U;
-            loop_complete = true;
-        }
+        display_render_animation();
     }
-    return loop_complete;
 }
 
 void app_tasks_init(void)
@@ -38,7 +29,6 @@ void app_tasks_init(void)
     motion_watchdog_init();
     robot_state_init();
     display_init();
-    display_animation_frame = 0U;
     display_animation_elapsed_ms = 0U;
     display_idle_ms = 0U;
     display_startup_animation = true;
@@ -100,16 +90,13 @@ void display_task_step(void)
                 (state.last_error == 0U);
 
     if (display_startup_animation && idle) {
-        if (display_animation_step()) {
-            display_startup_animation = false;
-        }
+        display_animation_step();
         return;
     }
 
     if (!idle) {
         display_startup_animation = false;
         display_idle_ms = 0U;
-        display_animation_frame = 0U;
         display_animation_elapsed_ms = 0U;
         display_render(&state);
         return;
@@ -124,7 +111,7 @@ void display_task_step(void)
         return;
     }
 
-    (void)display_animation_step();
+    display_animation_step();
 }
 
 void sensor_task_step(void)
