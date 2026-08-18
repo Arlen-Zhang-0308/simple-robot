@@ -1,14 +1,1 @@
-#ifndef DISPLAY_H
-#define DISPLAY_H
-
-#include <stdbool.h>
-#include <stdint.h>
-
-#include "robot_state.h"
-
-void display_init(void);
-void display_render(const RobotState *state);
-void display_render_animation(uint16_t frame);
-bool display_is_ready(void);
-
-#endif
+I2lmbmRlZiBESVNQTEFZX0gKI2RlZmluZSBESVNQTEFZX0gKCiNpbmNsdWRlIDxzdGRib29sLmg+CiNpbmNsdWRlIDxzdGRpbnQuaD4KCiNpbmNsdWRlICJyb2JvdF9zdGF0ZS5oIgoKdm9pZCBkaXNwbGF5X2luaXQodm9pZCk7CnZvaWQgZGlzcGxheV9yZW5kZXIoY29uc3QgUm9ib3RTdGF0ZSAqc3RhdGUpOwp2b2lkIGRpc3BsYXlfcmVuZGVyX2FuaW1hdGlvbih2b2lkKTsKYm9vbCBkaXNwbGF5X2lzX3JlYWR5KHZvaWQpOwoKI2VuZGlmCg==
