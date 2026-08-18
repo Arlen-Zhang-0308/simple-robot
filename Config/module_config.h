@@ -4,7 +4,7 @@
 #define APP_ENABLE_UART_COMMAND 1
 #define APP_ENABLE_BLUETOOTH    0
 #define APP_ENABLE_OLED         1
-#define APP_ENABLE_NRF24L01     0
+#define APP_ENABLE_NRF24L01     1
 #define APP_ENABLE_WIFI_MODULE  0
 #define APP_ENABLE_ADC_POWER    0
 #define APP_ENABLE_MOTOR        1

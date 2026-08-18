@@ -73,6 +73,7 @@ App/app_tasks.c \
 Driver/display.c \
 Driver/display_stub.c \
 Driver/motor_driver.c \
+Driver/nrf24l01.c \
 Driver/ring_buffer.c \
 Driver/transport.c \
 Service/command_router.c \

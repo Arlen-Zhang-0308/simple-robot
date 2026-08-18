@@ -5,6 +5,7 @@
 #include "display.h"
 #include "motor_driver.h"
 #include "motion_watchdog.h"
+#include "nrf24l01.h"
 #include "robot_state.h"
 
 #define SIMULATED_INPUT_MV   5000U
@@ -33,6 +34,7 @@ void app_tasks_init(void)
     display_idle_ms = 0U;
     display_startup_animation = true;
     (void)motor_driver_init();
+    (void)nrf24l01_init();
 }
 
 bool comm_task_rx_byte(uint8_t byte)

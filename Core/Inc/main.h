@@ -67,10 +67,8 @@ void Error_Handler(void);
 #define NRF_CSN_GPIO_Port GPIOA
 #define NRF_CE_Pin GPIO_PIN_8
 #define NRF_CE_GPIO_Port GPIOA
-#define NRF_IRQ_Pin GPIO_PIN_14
+#define NRF_IRQ_Pin GPIO_PIN_12
 #define NRF_IRQ_GPIO_Port GPIOB
-#define WIFI_EN_Pin GPIO_PIN_15
-#define WIFI_EN_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

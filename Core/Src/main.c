@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "app_tasks.h"
+#include "nrf24l01.h"
 #include "rtos_config.h"
 /* USER CODE END Includes */
 
@@ -46,6 +47,8 @@ ADC_HandleTypeDef hadc1;
 
 SPI_HandleTypeDef hspi1;
 
+SPI_HandleTypeDef hspi2;
+
 TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart1;
@@ -63,6 +66,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_SPI1_Init(void);
+static void MX_SPI2_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_USART1_UART_Init(void);
 void StartCommTask(void const * argument);
@@ -110,6 +114,7 @@ int main(void)
   MX_GPIO_Init();
   MX_ADC1_Init();
   MX_SPI1_Init();
+  MX_SPI2_Init();
   MX_TIM4_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
@@ -429,7 +434,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOB, OLED_RST_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, OLED_DC_Pin|WIFI_EN_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, OLED_DC_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, NRF_CSN_Pin, GPIO_PIN_SET);
@@ -437,8 +442,8 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, NRF_CE_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : OLED_DC_Pin OLED_RST_Pin WIFI_EN_Pin */
-  GPIO_InitStruct.Pin = OLED_DC_Pin|OLED_RST_Pin|WIFI_EN_Pin;
+  /*Configure GPIO pins : OLED_DC_Pin OLED_RST_Pin */
+  GPIO_InitStruct.Pin = OLED_DC_Pin|OLED_RST_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -453,9 +458,11 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : NRF_IRQ_Pin */
   GPIO_InitStruct.Pin = NRF_IRQ_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(NRF_IRQ_GPIO_Port, &GPIO_InitStruct);
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -469,6 +476,37 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
   {
     (void)comm_task_transport_rx_byte(TRANSPORT_UART, uart_rx_byte);
     (void)HAL_UART_Receive_IT(&huart1, &uart_rx_byte, 1U);
+  }
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin == NRF_IRQ_Pin)
+  {
+    nrf24l01_irq_handler();
+  }
+}
+
+/**
+  * @brief SPI2 Initialization Function
+  */
+static void MX_SPI2_Init(void)
+{
+  hspi2.Instance = SPI2;
+  hspi2.Init.Mode = SPI_MODE_MASTER;
+  hspi2.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi2.Init.NSS = SPI_NSS_SOFT;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
+  hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi2.Init.CRCPolynomial = 10;
+  if (HAL_SPI_Init(&hspi2) != HAL_OK)
+  {
+    Error_Handler();
   }
 }
 
@@ -490,6 +528,7 @@ void StartCommTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
+    nrf24l01_process_rx();
     size_t tx_length = comm_task_process_transport(
         &response_transport,
         tx_frame,
@@ -497,6 +536,10 @@ void StartCommTask(void const * argument)
     if ((tx_length > 0U) && (response_transport == TRANSPORT_UART))
     {
       (void)HAL_UART_Transmit(&huart1, tx_frame, (uint16_t)tx_length, 100U);
+    }
+    else if ((tx_length > 0U) && (response_transport == TRANSPORT_NRF24L01))
+    {
+      (void)nrf24l01_send(tx_frame, tx_length);
     }
     osDelay(1);
   }
