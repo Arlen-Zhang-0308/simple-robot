@@ -203,6 +203,14 @@ void USART1_IRQHandler(void)
   /* USER CODE END USART1_IRQn 1 */
 }
 
+/**
+  * @brief This function handles EXTI line[15:10] interrupts.
+  */
+void EXTI15_10_IRQHandler(void)
+{
+  HAL_GPIO_EXTI_IRQHandler(NRF_IRQ_Pin);
+}
+
 /* USER CODE BEGIN 1 */
 
 /* USER CODE END 1 */

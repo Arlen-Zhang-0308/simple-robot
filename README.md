@@ -13,7 +13,7 @@
 
 - CommTask：通过统一传输层接收命令；当前 UART 使用 USART1 中断逐字节接收，阻塞式发送响应。
 - 通信系统：UART、nRF24L01、蓝牙和 Wi-Fi 使用统一协议接口，各链路独立缓冲和解析，响应沿原链路返回。
-- 第一版仅启用无加密 UART；其他传输方式保留类型、配置和接入接口。
+- UART 与 nRF24L01 已启用；nRF24L01 通过 SPI2 收发，IRQ 下降沿仅通知接收任务，由 CommTask 读取无线 FIFO、解析命令并沿无线链路回传响应。
 - MotionTask：20 ms 周期把运动状态写入 DRV8833 四路 PWM，并执行欠压、急停和 500 ms 通信失联停车。
 - SensorTask：100 ms 周期发布模拟 5V 输入状态。
 - DisplayTask：33 ms 周期读取 RobotState，并通过 SPI1 刷新 128×64 SSD1306 OLED。
@@ -25,8 +25,9 @@
 - CRC 或长度错误返回 NACK；未知命令、错误 Payload、禁用模块和欠压使用统一错误响应。
 - DRV8833 实际输出：PB6→AIN1、PB7→AIN2、PB8→BIN1、PB9→BIN2，TIM4 运行于 10 kHz。
 - 7 针 SPI OLED：D0→PA5、D1→PA7、RES→PB0、DC→PB1、CS→GND；PB2 / BOOT1 不再使用。
+- nRF24L01：CE→PA8、CSN→PA4、SCK→PB13、M1/MISO→PB14、M0/MOSI→PB15、IRQ→PB12（EXTI12）；OLED 仍独占 SPI1。详细联调参数见 `Driver/nrf24l01.md`。
 - 四路舵机预留：TIM2 部分重映射，PA15 / PB3 / PA2 / PA3。
-- 蓝牙预留：USART3，PB10 / PB11；Wi-Fi 预留：USART2，PA2 / PA3，PB15 为 EN。
+- 蓝牙预留：USART3，PB10 / PB11；Wi-Fi 串口预留：USART2，PA2 / PA3，启用 nRF24L01 时 PB15 不再可用作 Wi-Fi EN。
 - SSD1306 SPI OLED 显示与模拟电压检测；显示驱动仍保留 Stub 配置用于脱机测试。
 
 任务优先级：
@@ -81,8 +82,7 @@ bss  14392 bytes
 - 前进、后退和转向命令必须在 500 ms 内续发；超时后状态切换为停止并清零四路 PWM。
 - TIM4 四个通道用于电机；四路舵机已独立分配到 TIM2。Servo3/4 与 USART2 Wi-Fi 共用 PA2/PA3，默认优先使用舵机。
 - UART 接收溢出当前只丢弃新字节，后续可增加错误计数或事件通知。
-- nRF24L01、蓝牙和 Wi-Fi 尚未接入真实驱动；链路加密也尚未实现。
-- OLED CS 当前固定接地，OLED 始终处于选中状态，因此当前接法下不能同时启用 nRF24L01 SPI 通信。
+- nRF24L01 已完成 SPI2 驱动与中断接收链路，但尚未完成两端模块的实机无线联调；蓝牙、Wi-Fi 与链路加密仍未实现。
 - 实物 OLED 已确认为 128×64 SSD1306 四线 SPI 模块，当前驱动与控制器型号一致。
 - RobotState 当前按首轮最小骨架直接共享，后续接入真实硬件与更高并发后再增加临界区。
 - ADC 与 SPI1 已由 HAL 初始化；传感器仍使用模拟值，显示已接入真实 SPI 驱动，TIM4 已用于真实电机 PWM。
